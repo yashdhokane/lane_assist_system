@@ -1,3 +1,5 @@
+import sys
+
 import cv2
 import numpy as np
  
@@ -9,7 +11,7 @@ def canny(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     kernel = 5
     blur = cv2.GaussianBlur(gray,(kernel, kernel),0)
-    canny = cv2.Canny(gray, 50, 150)
+    canny = cv2.Canny(blur, 50, 150)  # edge detection on the denoised image
     return canny
 
 def region_of_interest(canny):
@@ -52,23 +54,26 @@ def average_slope_intercept(image, lines):
     right_fit   = []
     if lines is None:
         return None
-    for line in lines:
-        for x1, y1, x2, y2 in line:
-            fit = np.polyfit((x1,x2), (y1,y2), 1)
-            slope = fit[0]
-            intercept = fit[1]
-            if slope < 0: 
-                left_fit.append((slope, intercept))
-            else:
-                right_fit.append((slope, intercept))
-    left_fit_average  = np.average(left_fit, axis=0)
-    right_fit_average = np.average(right_fit, axis=0)
-    left_line  = make_points(image, left_fit_average)
-    right_line = make_points(image, right_fit_average)
-    averaged_lines = [left_line, right_line]
-    return averaged_lines
+    # OpenCV 4 returns shape (N, 1, 4) and OpenCV 5 returns (N, 4)
+    for x1, y1, x2, y2 in np.asarray(lines).reshape(-1, 4):
+        if x1 == x2:
+            continue  # vertical segment: slope undefined
+        fit = np.polyfit((x1,x2), (y1,y2), 1)
+        slope = fit[0]
+        intercept = fit[1]
+        if slope < 0: 
+            left_fit.append((slope, intercept))
+        else:
+            right_fit.append((slope, intercept))
+    # Average each side; skip a side with no segments in this frame
+    averaged_lines = []
+    for fit in (left_fit, right_fit):
+        if fit:
+            averaged_lines.append(make_points(image, np.average(fit, axis=0)))
+    return averaged_lines or None
 
-cap = cv2.VideoCapture("test1.mp4")
+video_path = sys.argv[1] if len(sys.argv) > 1 else "test1.mp4"
+cap = cv2.VideoCapture(video_path)
 while(cap.isOpened()):
     _, frame = cap.read()
     canny_image = canny(frame)
